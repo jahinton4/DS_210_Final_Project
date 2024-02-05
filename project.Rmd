@@ -1,0 +1,444 @@
+---
+title: "2020-2021 English Premier League Season"
+author: "Jeannie Hinton"
+date: "4/27/2023"
+output:
+  html_document: default
+---
+**Libraries & Importing Data**
+```{r loading packages, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(lubridate)
+library(tidymodels)
+library(caret)
+```
+
+```{r importing and refining dataset, echo = FALSE}
+orig_epl <- read_csv("data/2020-2021.csv")
+refined_epl <- orig_epl[c(1:24)] 
+glimpse(refined_epl)
+```
+
+
+
+
+```{r new vars & filtering, echo = FALSE}
+refined_epl <- refined_epl %>% 
+  mutate(Winner = case_when(FTHG > FTAG & FTHG != FTAG ~ "Home", 
+                            FTAG > FTHG & FTAG != FTHG ~ "Away", 
+                            FTHG == FTAG ~ "Draw"
+                           )) %>% 
+  mutate(MoreRedCards = case_when(HR > AR & HR != AR ~ "Home", 
+                            AR > HR & AR != HR ~ "Away", 
+                            HR == AR ~ "Equal"
+                           )) %>% 
+  mutate(MoreYellowCards = case_when(HY > AY & HY != AY ~ "Home", 
+                            AY > HY & AY != HY ~ "Away", 
+                            HY == AY ~ "Equal"
+                           )) %>%  
+  mutate(MoreFouls = case_when(HF > AF & HF != AF ~ "Home", 
+                            AF > HF & AF != HF ~ "Away", 
+                            HF == AF ~ "Equal"
+                           )) %>%
+  mutate(WinnerClub = case_when(Winner == "Home" ~ HomeTeam,
+                                Winner == "Away" ~ AwayTeam,
+                                Winner == "Draw" ~ "Draw")) %>% 
+  mutate(TotalMatchReds = HR + AR) %>% 
+  mutate(TotalFouls = HF + AF) %>% 
+  mutate(TotalMatchYellows = HY + AY) %>% 
+  mutate(HTScore01 = case_when(HTR == "H" ~ 0, ##Home = 0 and Away = 1
+                               HTR == "A" ~ 1)) %>% 
+  mutate(FTScore01 = case_when(FTR == "H" ~ 0,
+                               FTR == "A" ~ 1)) %>% 
+  mutate(Crowds = case_when(HomeTeam == "Man United" & AwayTeam == "Fulham" & Referee == "L Mason" ~ "Fans present",
+                            HomeTeam == "Southampton" & AwayTeam == "Leeds" & Referee == "P Bankes" ~ "Fans present",
+                            HomeTeam == "Brighton" & AwayTeam == "Man City" & Referee == "S Attwell" ~ "Fans present",
+                            HomeTeam == "Chelsea" & AwayTeam == "Leicester" & Referee == "M Dean" ~ "Fans present",
+                            HomeTeam == "Everton" & AwayTeam == "Wolves" & Referee == "A Madley" ~ "Fans present",
+                            HomeTeam == "Newcastle" & AwayTeam == "Sheffield United" & Referee == "R Jones" ~ "Fans present", 
+                            HomeTeam == "Tottenham" & AwayTeam == "Aston Villa" & Referee == "C Pawson" ~ "Fans present",
+                            HomeTeam == "Crystal Palace" & AwayTeam == "Arsenal" & Referee == "A Taylor" ~ "Fans present",
+                            HomeTeam == "Burnley" & AwayTeam == "Liverpool" & Referee == "C Kavanagh" ~ "Fans present",
+                            HomeTeam == "West Brom" & AwayTeam == "West Ham" & Referee == "M Oliver" ~ "Fans present",
+                            HomeTeam == "Arsenal" & AwayTeam == "Brighton" & Referee == "J Moss" ~ "Fans present",
+                            HomeTeam == "Aston Villa" & AwayTeam == "Chelsea" & Referee == "S Attwell" ~ "Fans present",
+                            HomeTeam == "Fulham" & AwayTeam == "Newcastle" & Referee == "C Kavanagh" ~ "Fans present",
+                            HomeTeam == "Leeds" & AwayTeam == "West Brom" & Referee == "D Coote" ~ "Fans present",
+                            HomeTeam == "Leicester" & AwayTeam == "Tottenham" & Referee == "A Taylor" ~ "Fans present",
+                            HomeTeam == "Liverpool" & AwayTeam == "Crystal Palace" & Referee == "C Pawson" ~ "Fans present",
+                            HomeTeam == "Man City" & AwayTeam == "Everton" & Referee == "M Oliver" ~ "Fans present",
+                            HomeTeam == "Sheffield United" & AwayTeam == "Burnley" & Referee == "K Friend" ~ "Fans present",
+                            HomeTeam == "West Ham" & AwayTeam == "Southampton" & Referee == "M Atkinson" ~ "Fans present", 
+                            HomeTeam == "Wolves" & AwayTeam == "Man United" & Referee == "M Dean" ~ "Fans present", 
+                            TRUE ~ "No fans"
+                            )) %>% 
+  filter(Winner != "Draw") %>% 
+  mutate(HalfTimeWinner = case_when(HTR == "A" ~ "Away", 
+                                    HTR == "D" ~ "Draw", 
+                                    HTR == "H" ~ "Home")) %>% 
+  mutate(Winner01 = if_else(Winner == "Home", "1", "0"),
+         Winner01 = as.factor(Winner01)) %>% 
+  mutate(HomeShotsOnTarget = HST) %>% 
+  mutate(AwayShotsOnTarget = AST)
+```
+
+**Introduction**
+
+  In this project, I will explore the relationships between multiple characteristics connected to football matches and match outcomes. The data I will be using is from the 2020-2021 English Premier League season. The season of interest is the season that followed strict Covid lockdowns in the United Kingdom, when so many organizations were slowly reintroducing people to their public spaces. For the English Premier League(EPL), football clubs began reintroducing crowds to football stadiums. The purpose behind narrowing this project to this particular season is to determine how the beginning of the season when there were no fans compares to the latter part of the season where there was a reduced capacity of fans. By studying the data through the lense of fans or no fans present, I hope to see if there is an impact on the play of the game based on crowd status. Fans, of course, contribute to the atmosphere by shouting and chanting, but another contribution is how fan activity affect players' behaviors and internal thoughts. An example is how fans impact warnings and red cards that a player receives during a match. However, this study will not be entirely focused on Covid transitions, but will also study the typical variables for football matches and match outcomes. For instance, a typical match variable would be the amount of home club goals scored. All in all, the research question for this project is who will win a match, the home club or the away club, based on match predictors? The predictors that will contribute to an answer for this research question are fan presence, yellow and red cards, time of goals, shots on target, location of match, and date of match. It is important to note that while football matches can result in draws, for the purposes of predicting a match outcome through a regression model, the only possible outcomes for predicting a match in this project will be a home club win or an away club win. I have filtered out any matches that ended in a draw result. 
+
+  To understand the origin of the data used for this project, the data was retrieved from Kaggle, a public data platform where users can upload datasets and build machine learning models. The author of this dataset has a total of 20 years of EPL data recorded in his compiled dataset. However, for the purposes of this study, I am using a sample of this data and that sample is just one season, the 2020-2021 season. From this sample of the 2020-2021, I refined the data into a subset called **refined_epl** that includes the variables of interest and filters out any matches that ended in a draw, which totals to be 24 starting variables for 297 observations. By the end of my project, after creating new variables, the total amount of variables is now 39. One very important factor in this study is the lack of and presence of fans at matches, and this is determined by outside research through the EPL's website as the project progresses.  
+  
+```{r filtered data set, echo = FALSE}
+refined_epl <- refined_epl %>% 
+  filter(Winner != "Draw")
+```
+
+  In regards to the data itself, each row represents a match from the season with the identifier variables for each match being the unique combination of a home club, away club, date, and referee. To check the validity of the data, the EPL reports a total of 380 matches in the 2020-2021 season on its website and this dataset originally consisted of 380 observations. Also, I compared the club names in the dataset to the EPL's record of clubs in the top tier that season, and they match, showing correct entry of the clubs present in the 2020-2021 season. The website used to verify this data is https://www.premierleague.com/matchweek/5701/table. 
+  
+```{r verifying correct clubs, echo = FALSE, message = FALSE}
+club_table <- refined_epl %>% 
+  group_by(HomeTeam) %>% 
+  summarise()
+```
+
+**Analysis of Predictors Individually**
+
+  In order to determine which of my predictor variables significantly contribute to predicting a match outcome, I started by studying the predictors of interest individually. First, I wanted to see how total fouls, club fouls, yellow cards, and red cards behaved separately. Quickly though, I realized that to make this data more meaningful for my analysis, I needed to make new variables called, **MoreRedCards**, **MoreYellowCards**, and **MoreFouls**, all of which result in a value of "Home," "Away," or "Equal" based on which club received more red or yellow cards or fouls. Visually, these predictors, individually, did not provide much more information. However, the summary statistics for these predictors were helpful as they helped me better understand my data. For example, I did not know that fouls were a frequent occurrence in football matches, but the median amount of fouls in a match is 21 fouls with the maximum amount of fouls in a match being 38 fouls. 
+
+```{r sum stats for TotalFouls, echo = FALSE}
+refined_epl %>% 
+  summarise(min(TotalFouls), max(TotalFouls), median(TotalFouls))
+```
+```{r who has more fouls bar, echo = FALSE}
+ggplot(refined_epl, aes(x = MoreFouls)) +
+  geom_bar() +
+    labs(title = "Distribution of Who Received More Fouls", 
+       x = "Club",
+       y = "Count of Fouls")
+```
+
+```{r who has more yellows bar, echo = FALSE}
+refined_epl %>% 
+   filter(MoreYellowCards != "Equal") %>%
+ggplot(aes(x = MoreYellowCards)) +
+  geom_bar() +
+    labs(title = "Distribution of Who Received More Yellow Cards", 
+       x = "Club",
+       y = "Count of Yellow Cards")
+```
+
+```{r distribution of red cards, echo = FALSE}
+refined_epl %>% 
+   filter(MoreRedCards != "Equal") %>%   ##had to filter out Equal because of how it elongated my y-axis
+   ggplot(aes(x = MoreRedCards)) +
+    geom_bar() +
+    labs(title = "Distribution of Who Received More Red Cards", 
+       x = "Club",
+       y = "Count of Red Cards")
+```
+
+  The next predictor of interest was shots on target, denoted by **HomeShotsOnTarget** for the home club, and **AwayShotsOnTarget** for the away club. A shot is considered on target when a player attempts a shot at the goal and it either goes into the net or would have gone into the net if a player or goalkeeper had not blocked it. I first wanted to see the summary statistics for these two predictors, and the results were the exact same statistics for home and away clubs when studying minimum, maximum, and medians. The median amount of shots on target were 4. The minimum amount of shots on target were 0, and the max amount of shots on target were 14, which is a large number for a football match. The only difference in summary statistics was found when I made two boxplots, one for **HomeShotsOnTarget** and **AwayShotsOnTarget**, and found that the IQRs for the two predictors were not the same. The middle 50% of shots on target for home clubs were between around 2.6 and 5.2 shots. The middle 50% of shots on target for away clubs were between 2.6 and 5.1 shots. This is not a very significant difference, but again, it helped me better understand the data. 
+  
+```{r home shots on target sum stats, echo = FALSE}
+refined_epl %>% 
+  summarise(min(HomeShotsOnTarget), max(HomeShotsOnTarget), median(HomeShotsOnTarget))
+```
+
+```{r boxplots for HST, echo = FALSE}
+ggplot(refined_epl, aes(y = HomeShotsOnTarget)) +
+  geom_boxplot() +
+  theme(axis.ticks.x = element_blank(), 
+        axis.text.x = element_blank()) +
+  labs(title = "Distribution of Home Shots on Target", 
+       y = "Count of Home Shots on Target")
+```
+```{r away shots on target sum stats, echo = FALSE}
+refined_epl %>% 
+  summarise(min(AwayShotsOnTarget), max(AwayShotsOnTarget), median(AwayShotsOnTarget))
+```
+
+```{r boxplots for AST, echo = FALSE}
+ggplot(refined_epl, aes(y = AwayShotsOnTarget)) +
+  geom_boxplot() +
+  theme(axis.ticks.x = element_blank(), 
+        axis.text.x = element_blank()) +
+  labs(title = "Distribution of Away Shots on Target", 
+       y = "Count of Away Shots on Target")
+```
+
+  Another predictor I believe has an impact on match outcomes is the time at which a goal is scored. In this dataset, the best variable that relates to the time of a goal is the **HTR** and **FTR** variables, which mean half time result and full time result. By comparing the bar charts for HTR and FTR, one can see that there is a difference in what happens between the first half and second half of a football match and the overall outcome of the match.For example, there could be a draw at half time, but then by the end of the match, one club could be winning and the other club losing. 
+
+```{r half time result bar, echo = FALSE}
+ggplot(refined_epl, aes(x = HalfTimeWinner, fill = HalfTimeWinner)) +
+  geom_bar() +
+   labs(title = "Status of Who Is Winning at Half Time", 
+       fill = "Who Is Winning at Half Time:",
+       y = "Count", 
+       x = "Half Time Winner")
+```
+
+```{r full time result bar, echo = FALSE}
+ggplot(refined_epl, aes(x = FTR, fill = FTR)) +
+  geom_bar() +
+ labs(title = "Comparison of Home Club Wins to Away Club Wins", 
+      subtitle = "A = Away Club & H = Home Club",
+       fill = "Who Won:",
+       y = "Count", 
+       x = "Club")
+```
+
+  If the distributions had looked exactly the same, then it could be concluded that if a club is winning at half time, then the club will win the entire match. However, it makes sense that if you are winning at half time, you are more likely to win than if it was a draw status at half time. Although, there is something to the second half of a match. Thus, I will further work with the halt time result predictor, **HTR**, to see how it compares to the full time result, **FTR**. 
+
+The next predictor I wanted to study was the presence of fans. Although this predictor was not originally found in the dataset, I created the new predictor, **Crowds**, based on research I conducted on the EPL's Covid regulations. The EPL released a public announcement that stadiums were allowed to return at reduced capacity for weeks 37 and 38 of the season. This means that there were only two weeks for which fans were allowed to attend matches. I also confirmed this information by watching matchday recap videos from weeks 37 and 38 of the season when fans were present at reduced capacity. Studying **Crowds** individually, one can see that there just under 20 matches where fans were present with just over 275 matches without fans present. By counting through the dataset, I was able to determine that there are exactly 18 matches with fans present and exactly 279 matches without fans present. 
+
+```{r crowds bar, echo = FALSE}
+ggplot(refined_epl, aes(x = Crowds, fill = Crowds)) +
+  geom_bar() +
+  scale_y_continuous(limits = c(0, 300), breaks = c(20, 50, 100, 150, 200, 250, 300)) +
+  scale_fill_manual(values = c("#7ac095", "#ee9992")) +
+  labs(title = "Amount of Matches with or without Fans Present", 
+       fill = "Crowds:",
+       y = "Count")
+```
+
+  The final predictor I wanted to study is date of the match, but specifically the dates that shortly follow international breaks in professional soccer. International breaks are a week to almost two week long breaks that occur five times a season for players to return to their home countries to play in their home country's tournaments, prepare for the World Cup, or play in regional tournaments. For instance, Lionel Messi, an Argentine-born professional footballer, plays for Paris-Saint-Germain for most of the year in France in the French football league called Ligue 1. However, there are five times in a season, he can return to Argentina to play for the national team there. In relation to my project, there is a common belief that football clubs do not like it when their players leave for international break because the players often return to the club injured or the first game back is a poor performance from fatigue and travel. With this in mind, I wanted to see if international breaks had an impact on match outcomes. To effectively see this in the data, I had to create a new predictor called **PostInt**. This predictor is categorical in that it can only take on a value of "Yes" or "No" based on if the match fell within a week of the international break. The five international breaks during the 202-2021 season were the following:
+  August 30-September 8
+  October 4-October 13
+  November 8-November 16
+  January 24-February 1
+  March 21- March 29
+After creating some new date intervals and creating the new predictor, I continued my study of the **PostInt** through studying the it individually.
+
+```{r date work for international breaks, echo = FALSE}
+refined_epl$NewDate <- dmy(refined_epl$Date) 
+
+post_aug_break <- interval(ymd("2020-9-9"), ymd("2020-9-16"))
+post_oct_break <- interval(ymd("2020-10-14"), ymd("2020-10-21"))
+post_nov_break <- interval(ymd("2020-11-17"), ymd("2020-11-24"))
+post_jan_break <- interval(ymd("2021-2-2"), ymd("2021-2-9"))
+post_mar_break <- interval(ymd("2021-3-30"), ymd("2021-4-6"))
+
+refined_epl <- refined_epl %>% 
+  mutate(PostInt = case_when(NewDate %within% post_aug_break ~ "Yes", 
+                             NewDate %within% post_oct_break ~ "Yes",
+                             NewDate %within% post_nov_break ~ "Yes",
+                             NewDate %within% post_jan_break ~ "Yes", 
+                             NewDate %within% post_mar_break ~ "Yes", 
+                             TRUE ~ "No"))
+```
+
+```{r international breaks bar, echo = FALSE}
+ggplot(refined_epl, aes(x = PostInt, fill = PostInt)) +
+  geom_bar() +
+  labs(title = "Amount of Matches That Occur Within A Week After An International Break", 
+       x = "Post International Break", 
+       y = "Count", 
+       fill = "") +
+  scale_fill_manual(values = c("#ee9992", "#7ac095"))
+```
+
+By examining a bar chart of the **PostInt** variable, I was able to learn that the majority of matches do not occur right after international breaks. There are just under 50 matches that occur right after an international break, with just over 250 matches that are not rightt after an international break. However, just studying this variable by itself does not yield many benefits at all. Rather, I will compare it to other variables later in this project. 
+
+**Analysis of Predictors and Response**
+
+  After studying my predictors individually, I wanted to see how they impacted my response of interest, **Winner**, which again, can only result in either a home club win or an away club win. To begin, I compared fouls, yellow cards, and red cards to my response variable, **Winner**. 
+
+```{r more fouls vs winner proportions, echo = FALSE}
+refined_epl %>%
+  ggplot(aes(x = Winner, fill = MoreFouls)) +
+  geom_bar(position = "fill") +
+  labs(
+    x = "Winner", 
+    fill = "Who Has More Fouls:", 
+    y = NULL,
+    title = "Proportions of Who Has More Fouls vs Winner at The End of The Match"
+    ) +
+  scale_fill_manual(values = c("#DEC888","#DEB4C0", "#Ca456F"))
+```
+
+The figure titled "Proportions of Who Has More Fouls vs. Winner at The End of The Match" was helpful in understanding the distribution of fouls for matches that resulted in a home club win or an away club win. For home club wins, it appears that there are almost equal amounts of home fouls to away fouls, with just slightly more home fouls typically occurring. However, when away clubs win, there are more fouls on the home club's players than the away club's players. Interestingly, though, between the two Winner outcomes, the proportions for each possible outcome is different meaning that there is some sort of relationship between how many fouls an away or home club receives and whether they win or lose, making it an appropriate predictor to test in my prediction model. 
+```{r more yellows vs winner proportions, echo = FALSE}
+refined_epl %>%
+  ggplot(aes(x = Winner, fill = MoreYellowCards)) +
+  geom_bar(position = "fill") +
+  labs(
+    x = "Winner", 
+    fill = "Who Has More Yellow Cards:", 
+    y = NULL,
+    title = "Proportions of Who Has More Yellow Cards vs Winner at The End of The Match"
+    ) +
+  scale_fill_manual(values = c("#DEC888","#DEB4C0", "#Ca456F"))
+```
+
+For "Proportions of Who Has More Red Cards vs. Winner at The End of The Match", one can see that for away club wins, it appears that the home club earns more yellow cards than the away club. This makes sense in that if the home club is receiving more yellow cards, then the opposing team should be able to be more successful. After all, if a player receives two yellow cards, it is equivalent to a red card, at which point, that player will be ejected from the match and his team will play down a player. When the home club wins, a similar relationship is seen with the away club earning more yellow cards than the home club. Even though the two distributions share the same relationship within themselves, the proportions for each Winner outcome is different, meaning that yellow cards have some sort of affect on who wins a match. 
+
+In regards to red cards, the proportions for each winner outcome is very interesting. It is important to note here that for the following visualization, "Proportions of Who Has More Red Cards vs Winner at The End of The Match," I filtered out the value of "Equal" amounts of red cards because it was so difficult to decipher the proportions for who receives more red cards, the home club or the away club, and which has more of an affect on match outcomes. Moreover, if a player receives a red card, he is required to immediately leave the pitch and his teammates have to play the remainder of the match one player down. His club would go from 11 players to 10 players with the opposing club still having 11 players. Therefore, it is more significant for one club to receive more red cards and lose more players, rather than both of the clubs lose equal amounts of players and the match operate with equal players for both clubs. With all of this in mind, I found it appropriate to filter "Equal" out of the dataset for the purposes of studying the proportions. 
+
+```{r more reds vs winner proportions, echo = FALSE}
+refined_epl %>%
+  filter(MoreRedCards != "Equal") %>% 
+  ggplot(aes(x = Winner, fill = MoreRedCards)) +
+  geom_bar(position = "fill") +
+  labs(
+    x = "Winner", 
+    fill = "Who Has More Red Cards:", 
+    y = NULL,
+    title = "Proportions of Who Has More Red Cards vs Winner at The End of The Match"
+    ) +
+  scale_fill_manual(values = c("#DEC888","#DEB4C0", "#Ca456F"))
+```
+
+After filtering, I was able to see there is an association between who wins a match and who receives more red cards. Studying matches where the away club won, it appears that the home club received more red cards. This is understandable considering that for every red card the home club would have received, they would lose a player and the away club would have an advantage over them. Numerically, for away club wins, the amount of home clubs that receive a red card is around 80% of all away club wins. Thus, only around 20% of the time, the away club received more red cards and proceeded to win the match. Interestingly, when the home club wins, around 75% of the time, the away club receives more red cards, and the home club receives them around 25% of the time. With the differences in proportions between red cards and who wins the match, red cards appear to play an important role in determining the outcome of the match, and therefore, will be included in my prediction model. 
+
+  The next predictor I wanted to compare to my response variable, **Winner**, was **HomeShotsOnTarget** which is the home club's shots on target. Since the amount of shots is quantitative, I created side by side boxplots to see if there was an association. 
+  
+```{r HST v winner,echo = FALSE}
+ggplot(refined_epl, aes(x = Winner, y = HomeShotsOnTarget, fill = Winner)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("#DEC888", "#Ca456F"))+
+    scale_y_continuous(limits = c(0, 15), breaks = c(0, 3, 6, 9, 12, 15)) +
+  labs(title = "Home Club Shots on Target vs. Winner at The End of The Match",
+       x = "Winner Club", 
+       y = "Home Club Shots on Target",
+       fill = "Winner Club:")
+```
+
+The side by side boxplots reveal that for the middle 50% of matches when the away club wins, the home club has approximately 2 to 5 shots on target with an overall range of 0 to 10 shots on target. Additionally, when the away club won, the median amount of the home club shots on target was around 3 shots. In contrast, for the middle 50% of matches when the home club wins, the home club has typically shot around 4 to 7 shots on target. When the home club wins, the range for home club shots on target is anywhere between 1 shot and 14 shots with the median amount of shots being 6. This visualization and the medians support the idea that when a home club wins they probably had more shots on target overall and when the away club wins, the home club had fewer shots on target. All in all, the summary statistics from the visualization and how they differ for whether a home or away club wins, suggests home shots on target have an impact on the overall match outcome, making **HomeShotsOnTarget** a predictor to include in my model. 
+
+  In continuation with shots on target, I also wanted to study how away shots on target impact the outcome of the match and once again, using side-by-side boxplots accomplished this. 
+```{r AST v winner,echo = FALSE}
+ggplot(refined_epl, aes(x = Winner, y = AwayShotsOnTarget, fill = Winner)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("#DEC888", "#Ca456F"))+
+    scale_y_continuous(limits = c(0, 15), breaks = c(0, 3, 6, 9, 12, 15)) +
+  labs(title = "Away Club Shots on Target vs. Winner at The End of The Match",
+       x = "Winner Club", 
+       y = "Away Club Shots on Target",
+       fill = "Winner Club:")
+```
+
+  "Away Club Shots on Target vs. Winner at The End of The Match" displays an almost mirrored relationship to the prior boxplot that related Home Club Shots on Target to the outcome of the match. When the away club wins, the middle 50% of matches occur with the away club shooting approximately 3 to 7 shots on target with an overall range of 1 to 13 shots on target. Additionally, when the away club wins, the median amount of the away club shots on target is around 5 shots. In contrast, for the middle 50% of matches when the home club wins, the away club typically shoots around 2 to 4 shots on target. Also, when the home club wins, the range for away club shots on target is anywhere between 0 and 10 shots with the median amount of shots being 3. With the varying outcomes of the match being compared to the away club's shots on target, there is a clear relationship between the predictor and the response, making away shots on target, **AwayShotsOnTarget**, a predictor to be included in my model. 
+
+  Fouls, penalty cards, and shots are all very specific pieces of data based on specific parts of the match, but after considering how winning at half time of a match should provide an advantage, I really wanted to examine how my response variable, **Winner** behaved when it is plotted with the score at half time, **HalfTimeWinner**. In my original dataset, the half time score was represented in the variable **HTR** but for ease of communicating about the data with audiences unfamiliar with soccer acronyms, I created **HalfTimeWinner**. 
+```{r htr new var, echo = FALSE}
+refined_epl <- refined_epl %>% 
+  mutate(HalfTimeWinner = case_when(HTR == "A" ~ "Away", 
+                                    HTR == "D" ~ "Draw", 
+                                    HTR == "H" ~ "Home"))
+```
+
+```{r HalfTimeWinner vs winner proportions, echo = FALSE}
+refined_epl %>%
+  ggplot(aes(x = Winner, fill = HalfTimeWinner)) +
+  geom_bar(position = "fill") +
+  labs(
+    x = "Winner", 
+    fill = "Who is Winning at Half Time:", 
+    y = NULL,
+    title = "Proportions of Who Is Winning at Half Time vs Winner at The End of The Match"
+    ) +
+  scale_fill_manual(values = c("#DEC888","#DEB4C0", "#Ca456F"))
+```
+
+Once I built the visualization titled, "Proportions of Who Is Winning at Half Time vs Winner at The End of The Match", I was able to better see the relationship between the score at half time and the outcome of the match. For matches when the away club wins, the away club is winning at half time for about 60% of the matches in this refined dataset. The other remaining 40% of the matches are split into the home club winning at half time and there being a draw at half time. Around 10% of the matches when the away club wins, actually have the home club winning at half time. The remaining 30% of the away club winning matches have the two clubs at a draw at half time. In opposition, when the home club wins, for around 65% of the matches, the home club is winning at half time and around 10% of the matches, the away club is winning at half time. For the remaining 25% of the matches when the home club wins, the away club is winning at half time. Just like some of the other predictors in this dataset, the proportions for each winner outcome vary based on the predictor I compare it to, and therefore, there is a relationship in this case when the half time result is related to the winner at full time.  
+
+
+  Even so, one of the most impactful factors of a football match is fan interaction, and in theory, fan chants and fan behaviors could be so aggressive that they end up impacting the outcome of the match. Thus, I created a visualization to compare the final outcome of a match, a home club win or an away club win, to crowds being present or not. 
+```{r crowds vs winner proportions, echo = FALSE}
+refined_epl %>%
+  ggplot(aes(x = Winner, fill = Crowds)) +
+  geom_bar(position = "fill") +
+  labs(
+    x = "Winner", 
+    fill = "Crowds:", 
+    y = NULL,
+    title = "Proportions of Crowds vs Winner at The End of The Match"
+    ) +
+  scale_fill_manual(values = c("#Bae495", "#f4aa82"))
+```
+
+The visualization, "Proportions of Crowds vs Winner at The End of The Match," reveal an almost identical set of proportions. However, it appears that for matches when fans are present, the home club wins just a slight amount more often than the away club does when fans are present. This slight difference is enough evidence to at least test this variable in my predictive model, but I do not expect it to have a significant impact on the predictions themselves. It is important to remember that the majority of matches in the 2020-2021 season were played without fans present, which is a reason why there is such a large proportion of fans not being present regardless of the outcome of the match. 
+
+  The final predictor I want to compare to **Winner** is whether or not a match falls within a week after an international break.
+```{r PostInt vs. Winner proporitons, echo = FALSE}
+refined_epl %>%
+  ggplot(aes(x = Winner, fill = PostInt)) +
+  geom_bar(position = "fill") +
+  labs(
+    x = "Winner", 
+    fill = "Post-International Break:", 
+    y = NULL,
+    title = "Proportions of Post-International Break Matches vs Winner at The End of The Match"
+    ) +
+  scale_fill_manual(values = c("#ee9992", "#7ac095"))
+```
+This visualization, "Proportions of Post-International Break Matches vs Winner at The End of The Match," displays the proportions of whether or not a match was right after an international break or not for either a home club win or an away club win. It appears that when an away club wins, there are around 14% of matches that occur right after an international break. When a home club wins, there are around 12.5% of matches that occur right after an international break. These are not drasticly different proportions, but just like the **Crowds** predictor, even a slight difference is enough evidence for me to at least try building a predictive model and testing how much **PostInt** contributes to the prediction.
+
+
+**Predictive Model**
+
+  After studying all of the predictors of interest and the response variable of interest, **Winner**, I have built a logistic regression model to predict whether an away club will win or a home club will win based on the predictors. To begin, I classified my **Winner** response in such a way that a home club win was represented by a 1 and a not home club win, in other words, an away club win, was represented by a 0. The predicted probability threshold was set to anything greater than 0.5 being set to a home club win, and any predicted probability below 0.5 is set to a not home club win, or an away club win. This classification step is essential for helping my logistic regression model function optimally. Following the classifications, I built the model using the glm() function and split my data into training data and test data. The training data is a random sample of 80% of the matches from the refined and filtered dataset, and this is used to form and train the model. After the model is trained, I test the model using the testing data and refer to a Confusion Matrix to see how accurate my model predicted the outcome of a match. 
+  
+```{r prepping data for regression, echo = FALSE}
+refined_epl <- refined_epl %>% 
+  mutate(Winner01 = if_else(Winner == "Home", "1", "0"),
+         Winner01 = as.factor(Winner01))
+```
+
+```{r splitting data, echo = FALSE}
+set.seed(1234)
+refined_epl_split <- initial_split(refined_epl, prop = 0.80)
+
+train_data <- training(refined_epl_split)
+test_data <- testing(refined_epl_split)
+
+##glimpse(train_data)
+##glimpse(test_data)
+```
+
+```{r logistic reg model, echo = FALSE}
+winner_fit <- glm(Winner01 ~ MoreFouls + MoreYellowCards + MoreRedCards + HalfTimeWinner + PostInt + HomeShotsOnTarget + AwayShotsOnTarget + Crowds, data = train_data, family = "binomial")
+tidy(winner_fit)
+```
+
+```{r eliminating predictor with largest p-val, echo = FALSE}
+##winner_fit <- glm(Winner01 ~ MoreYellowCards + MoreRedCards + HalfTimeWinner + PostInt + HST + AST + Crowds, data = train_data, family = "binomial")
+##tidy(winner_fit)
+```
+
+```{r predicting outcome, echo = FALSE}
+winner_pred <- predict(winner_fit, test_data, type = "response")
+winner_pred <- as_tibble(winner_pred) %>% 
+  rename(pred = value)
+
+winner_pred <- winner_pred %>% 
+  bind_cols(test_data %>% select(Winner01, Winner))
+```
+
+```{r evaluating model, echo = FALSE}
+library(caret)
+pred <- predict(winner_fit, test_data)
+pred_num <- ifelse(pred > 0.5, 1, 0) ##set probability cut-off at 0.5
+pred_num <- factor(pred_num, levels = c(0, 1))
+confusionMatrix(pred_num, test_data$Winner01)
+
+winner_pred %>% 
+  roc_curve(truth = Winner01, pred, event_level = "second") %>% 
+  autoplot()
+
+winner_pred %>% 
+  roc_auc(truth = Winner01, pred, event_level = "second")
+```
+  The Confusion Matrix reports an 85% accuracy rate, meaning that for my testing data, my model correctly predicted 85% of the matches' outcomes, based on the predictors of interest, **MoreFouls**, **MoreYellowCards**, **MoreRedCards**, **HalfTimeWinner**, **PostInt**, **Crowds**, and **HomeShotsOnTarget** and **AwayShotsOnTarget**. Consequently, 15% of the matches' outcomes in my testing data were incorrectly predicted by my model. To further assess how accurate my model is, I find it important to study an ROC curve. A model is considered a good predictive model, the closer the area under the ROC curve is to 1. Based on the ROC curve for my model, the area under the curve is around 0.95, which is very close to 1, meaning the model is a good predictor of the outcomes of football matches.
+    To further assess the model I built, I tweaked the model many times by removing certain predictors and checking the accuracy in the Confusion Matrix, and the model remaining was the best considering the predictors of interest and how they interact with matches. The final model is: 
+```{r final logistic reg model}
+winner_fit <- glm(Winner01 ~ MoreFouls + MoreYellowCards + MoreRedCards + HalfTimeWinner + PostInt + HomeShotsOnTarget + AwayShotsOnTarget + Crowds, data = train_data, family = "binomial")
+```
+
+**Conclusion & Discussion**
+
+  In closing, through creating a logistic regression model, I was able to find the ideal combination of match predictors that can very accurately predict the probability of who will win a match, the home club or the away club. The predictors of interest that compose the model are **MoreFouls**, **MoreYellowCards**, **MoreRedCards**, **HalfTimeWinner**, **PostInt**, **Crowds**, and **HomeShotsOnTarget** and **AwayShotsOnTarget**. The accuracy for this model was confirmed by a Confusion Matrix reporting 85% accuracy with an ROC Curve area of 0.95, making the model, a good predictor of the probability of who will win a match based on the predictors of interest.
+  Concerning limitations of this analysis, since this data came from a year of transition from strict Covid lockdown to reduced capacity public spaces, I had hoped this dataset would provide statistical or visual evidence of the impact of crowds. However, it was very difficult to see any strong relationship between **Crowds** and **Winner** outcome. When comparing the proportions for the two variables, the proportions between when the away club wins and the home club wins, are so numerically similar that I did not expect to see much impact in the model. When building a logistic regression model with **Crowds** as my only predictor for **Winner**, the model produced a Confusion Matrix accuracy of less than 50%. At that level of accuracy, the model is essentially randomly guessing probabilities for who will win a match. I believe that a limitation in this **Crowds** portion of the analysis, is overall so little data on matches when fans were present. In other words, the sample size of matches when fans were present was so small compared to matches when fans were not present, that I believe the better route for studying the impact of fans on football matches is to compare two different seasons or samples of two different seasons. One sample could be from this 2020-2021 dataset and the other sample should be of equal size but from the 2021-2022 season when fans were allowed to attend in full capacity. Although, the clubs in the top tier of the league change every season based on who gets promoted and relegated. To briefly explain, at the end of the season, the 3 lowest ranking clubs are relegated, or "demoted", into the second tier of professional football in England. The second tier is called the Championship League. To fill the cavity made by the clubs being relegated, the 3 highest ranking clubs from the Championship League are promoted into the top tier for the next season. Considering this concept of promotion and relegation, if comparing two different seasons, it may be wise to take a sample that includes the same clubs or perhaps includes the top 15 of the 20 clubs in a both seasons of interest. 
+    To continue the discussion on limitations of this analysis, in order for my logistic regression model to work for prediction, I had to classify the possible outcomes as a home club wins or a home club does not win and thus, is recorded as an away club win. Unfortunately, though, this classification is not reflective of the reality of football. In football, matches can end in a draw. Thus, there is actually another group in the classification step I think would be appropriate for another analysis, and that group is that the match could end in a draw. Another type of modeling, such as K Nearest Neighbors, would be able to better handle this limitation. 
+    I believe the next step in furthering this analysis is to test this model on future seasons to see how it behaves with new samples of data. It could even be interesting to test this model on an EPL season from the 1960s or 1970s when the sports world was less developed. In the '60s and '70s, there was less scientific research on the whole mind and body impacting the play of sports. Now, the entire lifestyle, physical health, and mental health of a player is monitored throughout the season and during the offseason. Thus, it would be interesting to see if today, there are more lurking variables impacting the data that I cannot see in the data but sets it apart from the '60s and '70s data. Similarly, I am interested to know if other datasets include more or less predictors and how those could positively or negatively impact the prediction model I created, but that will have to remain unanswered until I compile more datasets. 
+    
